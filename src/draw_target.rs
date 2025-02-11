@@ -8,7 +8,6 @@ use crate::geom::*;
 use crate::path_builder::*;
 
 pub use crate::path_builder::Winding;
-use lyon_geom::cubic_to_quadratic::cubic_to_quadratics;
 use lyon_geom::CubicBezierSegment;
 
 #[cfg(feature = "text")]
@@ -216,7 +215,7 @@ pub enum FilterMode {
 
 /// LinearGradients have an implicit start point at 0,0 and an end point at 256,0. The transform
 /// parameter can be used to adjust them to the desired location.
-/// RadialGradients have an implict center at 0,0 and a radius of 128.
+/// RadialGradients have an implicit center at 0,0 and a radius of 128.
 /// The helper functions: `new_linear_gradient`, `new_radial_gradient` and `new_two_circle_radial_gradient`
 /// allow the gradients to be constructed with easier to understand inputs.
 /// The `transform` parameter maps user space to source space. This means that setting the same transform
@@ -231,6 +230,7 @@ pub enum Source<'a> {
     RadialGradient(Gradient, Spread, Transform),
     TwoCircleRadialGradient(Gradient, Spread, Point, f32, Point, f32, Transform),
     LinearGradient(Gradient, Spread, Transform),
+    SweepGradient(Gradient, Spread, f32, f32, Transform),
 }
 
 impl From<SolidSource> for Source<'_> {
@@ -288,6 +288,13 @@ impl<'a> Source<'a> {
     pub fn new_two_circle_radial_gradient(gradient: Gradient, center1: Point, radius1: f32,  center2: Point, radius2: f32, spread: Spread) -> Source<'a> {
         let transform = Transform::identity();
         Source::TwoCircleRadialGradient(gradient, spread, center1, radius1, center2, radius2, transform)
+    }
+
+    /// Creates a new sweep gradient that is centered at the given point with `start_angle` and `end_angle`.
+    pub fn new_sweep_gradient(gradient: Gradient, center: Point, start_angle: f32, end_angle: f32, spread: Spread) -> Source<'a> {
+        // Transform gradient to center of gradient
+        let transform = Transform::translation(-center.x, -center.y);
+        Source::SweepGradient(gradient, spread, start_angle, end_angle, transform)
     }
 }
 
@@ -492,7 +499,7 @@ impl<Backing : AsRef<[u32]> + AsMut<[u32]>> DrawTarget<Backing> {
                 ctrl2: cpt2,
                 to: pt,
             };
-            cubic_to_quadratics(&c, 0.01, &mut |q| {
+            c.for_each_quadratic_bezier(0.01, &mut |q| {
                 let curve = [q.from, q.ctrl, q.to];
                 self.add_quad(curve);
             });
@@ -1084,15 +1091,20 @@ impl<Backing : AsRef<[u32]> + AsMut<[u32]>> DrawTarget<Backing> {
         self.buf
     }
 
-    /// Saves the current pixel to a png file at `path`
+    /// Saves the current pixels to a png file at `path`
     #[cfg(feature = "png")]
     pub fn write_png<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), png::EncodingError> {
         let file = File::create(path)?;
 
         let w = &mut BufWriter::new(file);
+        self.write_png_to_writer(w)
+    }
 
+    /// Saves the current pixels to a png and writes it to `w`
+    #[cfg(feature = "png")]
+    pub fn write_png_to_writer<W: Write>(&self, w: Write) -> Result<(), png::EncodingError> {
         let mut encoder = png::Encoder::new(w, self.width as u32, self.height as u32);
-        encoder.set_color(png::ColorType::RGBA);
+        encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
         let mut writer = encoder.write_header()?;
         let buf = self.buf.as_ref();

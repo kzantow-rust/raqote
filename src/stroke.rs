@@ -1,3 +1,6 @@
+// This is a simple path stroker. It flattens the path and strokes each segment individually.
+// For a recent survey of stroking approaches see "Converting stroked primitives to filled primitives" by Diego Nehab
+
 use crate::path_builder::{Path, PathBuilder, PathOp};
 use crate::{Point, Vector};
 
@@ -42,8 +45,9 @@ fn compute_normal(p0: Point, p1: Point) -> Option<Vector> {
     let ux = p1.x - p0.x;
     let uy = p1.y - p0.y;
 
-    // this could overflow f32. Skia checks for this and
-    // uses a double in that situation
+    // this could overflow f32. Skia in SkPoint::Normalize used to
+    // checks for this and used a double in that situation, but was
+    // simplified to always use doubles.
     let ulen = ux.hypot(uy);
     if ulen == 0. {
         return None;
@@ -67,7 +71,7 @@ The approximation is similar to an approximation given in:
 by Alekas Riškus. However that approximation becomes unstable when the
 angle of the arc approaches 0.
 
-This approximation is inspired by a discusion with Boris Zbarsky
+This approximation is inspired by a discussion with Boris Zbarsky
 and essentially just computes:
 
   h = 4.0/3.0 * tan ((angle_B - angle_A) / 4.0);
@@ -223,7 +227,7 @@ fn line_intersection(a: Point, a_perp: Vector, b: Point, b_perp: Vector) -> Opti
 }
 
 fn is_interior_angle(a: Vector, b: Vector) -> bool {
-    /* angles of 180 and 0 degress will evaluate to 0, however
+    /* angles of 180 and 0 degrees will evaluate to 0, however
      * we to treat 180 as an interior angle and 180 as an exterior angle */
     dot(perp(a), b) > 0. || a == b /* 0 degrees is interior */
 }
@@ -338,6 +342,7 @@ pub fn stroke_to_path(path: &Path, style: &StrokeStyle) -> Path {
                     if let Some(normal) = compute_normal(cur_pt, end_point) {
                         join_line(&mut stroked_path, style, cur_pt, last_normal, normal);
 
+                        // the closing line segment
                         stroked_path.move_to(
                             cur_pt.x + normal.x * half_width,
                             cur_pt.y + normal.y * half_width,
@@ -363,6 +368,7 @@ pub fn stroke_to_path(path: &Path, style: &StrokeStyle) -> Path {
                             cur_pt.y,
                         );
                         stroked_path.close();
+
                         join_line(&mut stroked_path, style, end_point, normal, start_normal);
                     } else {
                         join_line(&mut stroked_path, style, end_point, last_normal, start_normal);
